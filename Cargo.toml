@@ -21,8 +21,3 @@ lto = true
 strip = false
 lto = true
 opt-level = "z" # Optimize for size.
-
-[features]
-default = ["single-io"]
-single-io = []
-double-io = []
