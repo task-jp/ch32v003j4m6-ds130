@@ -56,6 +56,13 @@ pub mod ds1302 {
         }
     }
 
+    fn reverse_bits(mut n: u8) -> u8 {
+        n = (n >> 4) | (n << 4);
+        n = ((n & 0xCC) >> 2) | ((n & 0x33) << 2);
+        n = ((n & 0xAA) >> 1) | ((n & 0x55) << 1);
+        n
+    }
+
     impl<CE, SCLK, MISO, MOSI> Ds1302<CE, SCLK, MISO, MOSI>
     where CE: embedded_hal::digital::v2::OutputPin,
           SCLK: embedded_hal::digital::v2::OutputPin,
@@ -65,16 +72,13 @@ pub mod ds1302 {
         // https://akizukidenshi.com/download/ds/maxim/ds1302.pdf
         
         pub fn write(&mut self, addr: u8, data: u8, delay: &impl Delay) {
-            println!("write: addr: {:02X}, data: {:02X}", addr, data);
             let _result: Result<(), <SCLK as OutputPin>::Error> = self.sclk.set_low();
             let _result = self.ce.set_high();
             delay.delay_micro(4); // tCC = 4us for 2V
             // COMMAND BYTE
             // Figure 3. Address/Command Byte
-            let mut command_byte = 0;
-            for i in 0..8 {
-                command_byte |= ((addr >> i) & 0b1) << (8 - i); //  The command byte is always input starting with the LSB (bit 0).
-            }
+            let command_byte = reverse_bits(addr);
+            println!("write: addr: {:02X}({:08b} <=> {:08b}), data: {:02X}", addr, addr, command_byte, data);
             self.write_byte(command_byte, delay);
             self.write_byte(data, delay);
             delay.delay_nano(300); // tCCH = 240ns for 2V
@@ -89,16 +93,13 @@ pub mod ds1302 {
             delay.delay_micro(4); // tCC = 4us for 2V
             // COMMAND BYTE
             // Figure 3. Address/Command Byte
-            let mut command_byte = 0;
-            for i in 0..8 {
-                command_byte |= ((addr >> i) & 0b1) << (8 - i); //  The command byte is always input starting with the LSB (bit 0).
-            }
+            let command_byte = reverse_bits(addr);
             self.write_byte(command_byte, delay);
             let data = self.read_byte(delay)?;
             delay.delay_nano(300); // tCCH = 240ns for 2V
             let _result = self.ce.set_low();
             delay.delay_micro(4); // tCWH = 4us for 2V
-            println!("read:  addr: {:02X}, data: {:02X}", addr, data);
+            println!("read:  addr: {:02X}({:08b} <=> {:08b}), data: {:02X}({:08b})", addr, addr, command_byte, data, data);
             Ok(data)
         }
 
@@ -108,7 +109,7 @@ pub mod ds1302 {
             self.sclk.set_low();
             for i in 0..8 {
                 let bit = self.read_bit(delay)?;
-                data |= match bit { true => 1, false => 0, } << (8 - i);
+                data |= match bit { true => 1, false => 0, } << i;
             }
             Ok(data)
         }
@@ -117,8 +118,8 @@ pub mod ds1302 {
         fn read_bit(&mut self, delay: &impl Delay) -> Result<bool, <MISO as InputPin>::Error> {
             delay.delay_nano(300); // tCCZ = 280ns for 2V
             let _result: Result<(), <SCLK as OutputPin>::Error> = self.sclk.set_high();
-            delay.delay_nano(1000); // tCH = 1000ns for 2V
             let bit = self.miso.is_high()?;
+            delay.delay_nano(1000); // tCH = 1000ns for 2V
             let _result: Result<(), <SCLK as OutputPin>::Error> = self.sclk.set_low();
             delay.delay_nano(1000); // tCL = 1000ns for 2V
             Ok(bit)
@@ -128,7 +129,8 @@ pub mod ds1302 {
         fn write_byte(&mut self, byte: u8, delay: &impl Delay) -> Result<(), <MOSI as OutputPin>::Error> {
             self.sclk.set_low();
             for i in 0..8 {
-                self.write_bit((byte >> i) & 1 == 1, delay)?;
+                // println!("write_bit: {}: {:0X}", i, ((byte >> (7 - i)) & 1));
+                self.write_bit(((byte >> (7 - i)) & 1) == 1, delay)?;
             }
             Ok(())
         }
@@ -136,11 +138,11 @@ pub mod ds1302 {
         // 1ビットを書き込む
         fn write_bit(&mut self, bit: bool, delay: &impl Delay) -> Result<(), <MOSI as OutputPin>::Error> {
             let _ = self.mosi.set_state(bit.into());
-            delay.delay_nano(250); // tDC = 200ns for 2V
+            delay.delay_nano(2500); // tDC = 200ns for 2V
             let _result: Result<(), <SCLK as OutputPin>::Error> = self.sclk.set_high();
-            delay.delay_nano(1000); // tH = 1000ns for 2V
+            delay.delay_nano(10000); // tCH = 1000ns for 2V
             let _result: Result<(), <SCLK as OutputPin>::Error> = self.sclk.set_low();
-            delay.delay_nano(1000); // tCL = 1000ns for 2V
+            delay.delay_nano(10000); // tCL = 1000ns for 2V
             Ok(())
         }
     }
@@ -166,15 +168,15 @@ impl Ch32Delay {
 
 impl ds1302::Delay for Ch32Delay {
     fn delay_micro(&self, secs: u32) {
-        let cycles = self.sysclock.raw() / 1_000_000 * secs / 2;
+        let cycles = self.sysclock.raw() / 1_000_000 * secs * 1000;
         unsafe {
             qingke::riscv::asm::delay(cycles);
         }
     }
     fn delay_nano(&self, secs: u32) {
-        let cycles = self.sysclock.raw() / 1_000_000_000 * secs / 2;
+        let cycles = self.sysclock.raw() as u64/ 1_000_000_000u64 * secs as u64 * 1000u64;
         unsafe {
-            qingke::riscv::asm::delay(cycles);
+            qingke::riscv::asm::delay(cycles as u32);
         }
     }
 }
@@ -197,17 +199,17 @@ fn main() -> ! {
     let mut led_y = gpiod.pd6.into_push_pull_output();
 
     // ds1302
-    let miso = gpioc.pc1.into_pull_up_input();
-    let scl = gpioc.pc2.into_push_pull_output();
-    let ce = gpioc.pc4.into_push_pull_output_in_state(PinState::Low);
+    let miso = gpioc.pc2.into_pull_up_input();
+    let scl = gpioc.pc4.into_push_pull_output();
+    let ce = gpioc.pc1.into_push_pull_output_in_state(PinState::Low);
     let mosi = gpioa.pa2.into_push_pull_output();
 
     let mut ds1302 = ds1302::Ds1302::new(ce, scl, miso, mosi);
     ds1302.write(0x80, 0b10000000, &delay);
     
     loop {
-        delay.delay_milli(250);
-        match ds1302.read(0x81, &delay) {
+        delay.delay_milli(500);
+        match ds1302.read(0x83, &delay) {
             Ok(data) => {
                 if data & 0b0000_0001 == 0b0000_0001 {
                     led_y.set_high();
