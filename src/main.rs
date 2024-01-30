@@ -56,6 +56,10 @@ pub mod ds1302 {
         }
     }
 
+    fn decode_bcd(bcd: u8) -> u8 {
+        bcd & 0b0000_1111 + (bcd >> 4) * 10
+    }
+
     fn reverse_bits(mut n: u8) -> u8 {
         n = (n >> 4) | (n << 4);
         n = ((n & 0xCC) >> 2) | ((n & 0x33) << 2);
@@ -69,6 +73,76 @@ pub mod ds1302 {
           MISO: embedded_hal::digital::v2::InputPin, 
           MOSI: embedded_hal::digital::v2::OutputPin,
     {
+        pub fn get_seconds(&mut self, delay: &impl Delay) -> Result<u8, <MISO as InputPin>::Error> {
+            let seconds = self.read(0x81, delay)?;
+            Ok(decode_bcd(seconds & 0b0111_1111))
+        }
+        pub fn get_minutes(&mut self, delay: &impl Delay) -> Result<u8, <MISO as InputPin>::Error> {
+            let minutes = self.read(0x83, delay)?;
+            Ok(decode_bcd(minutes & 0b0111_1111))
+        }
+        pub fn get_hour(&mut self, delay: &impl Delay) -> Result<u8, <MISO as InputPin>::Error> {
+            let hour = self.read(0x85, delay)?;
+            let is_24h = hour & 0b1000_0000 == 0b1000_0000;
+            let is_pm = hour & 0b0010_0000 == 0b0010_0000;
+            let hour = decode_bcd(hour & 0b0001_1111);
+            if !is_24h || !is_pm {
+                Ok(hour)
+            } else {
+                Ok(hour + 12)
+            }
+        }
+
+        pub fn get_date(&mut self, delay: &impl Delay) -> Result<u8, <MISO as InputPin>::Error> {
+            let date = self.read(0x87, delay)?;
+            Ok(decode_bcd(date & 0b0011_1111))
+        }
+
+        pub fn get_month(&mut self, delay: &impl Delay) -> Result<u8, <MISO as InputPin>::Error> {
+            let month = self.read(0x89, delay)?;
+            Ok(decode_bcd(month & 0b0001_1111))
+        }
+
+        pub fn get_day(&mut self, delay: &impl Delay) -> Result<u8, <MISO as InputPin>::Error> {
+            let day = self.read(0x8B, delay)?;
+            Ok(decode_bcd(day & 0b0000_0111))
+        }
+
+        pub fn get_year(&mut self, delay: &impl Delay) -> Result<u8, <MISO as InputPin>::Error> {
+            let year = self.read(0x8D, delay)?;
+            Ok(decode_bcd(year))
+        }
+
+        pub fn set_seconds(&mut self, seconds: u8, delay: &impl Delay) {
+            let seconds = reverse_bits(seconds);
+            self.write(0x80, seconds, delay);
+        }
+
+        pub fn set_minutes(&mut self, minutes: u8, delay: &impl Delay) {
+            let minutes = reverse_bits(minutes);
+            self.write(0x82, minutes, delay);
+        }
+
+        pub fn set_hour(&mut self, hour: u8, delay: &impl Delay) {
+            let hour = reverse_bits(hour);
+            self.write(0x84, hour, delay);
+        }
+
+        pub fn set_date(&mut self, date: u8, delay: &impl Delay) {
+            let date = reverse_bits(date);
+            self.write(0x86, date, delay);
+        }
+
+        pub fn set_month(&mut self, month: u8, delay: &impl Delay) {
+            let month = reverse_bits(month);
+            self.write(0x88, month, delay);
+        }
+
+        pub fn set_year(&mut self, year: u8, delay: &impl Delay) {
+            let year = reverse_bits(year);
+            self.write(0x8C, year, delay);
+        }
+
         // https://akizukidenshi.com/download/ds/maxim/ds1302.pdf
         
         pub fn write(&mut self, addr: u8, data: u8, delay: &impl Delay) {
@@ -78,7 +152,7 @@ pub mod ds1302 {
             // COMMAND BYTE
             // Figure 3. Address/Command Byte
             let command_byte = reverse_bits(addr);
-            println!("write: addr: {:02X}({:08b} <=> {:08b}), data: {:02X}", addr, addr, command_byte, data);
+            // println!("write: addr: {:02X}({:08b} <=> {:08b}), data: {:02X}", addr, addr, command_byte, data);
             self.write_byte(command_byte, delay);
             self.write_byte(data, delay);
             delay.delay_nano(300); // tCCH = 240ns for 2V
@@ -99,7 +173,7 @@ pub mod ds1302 {
             delay.delay_nano(300); // tCCH = 240ns for 2V
             let _result = self.ce.set_low();
             delay.delay_micro(4); // tCWH = 4us for 2V
-            println!("read:  addr: {:02X}({:08b} <=> {:08b}), data: {:02X}({:08b})", addr, addr, command_byte, data, data);
+            // println!("read:  addr: {:02X}({:08b} <=> {:08b}), data: {:02X}({:08b})", addr, addr, command_byte, data, data);
             Ok(data)
         }
 
@@ -116,12 +190,12 @@ pub mod ds1302 {
         
         // 1ビットを読み込む
         fn read_bit(&mut self, delay: &impl Delay) -> Result<bool, <MISO as InputPin>::Error> {
-            delay.delay_nano(300); // tCCZ = 280ns for 2V
+            delay.delay_nano(2500); // tCCZ = 280ns for 2V
             let _result: Result<(), <SCLK as OutputPin>::Error> = self.sclk.set_high();
             let bit = self.miso.is_high()?;
-            delay.delay_nano(1000); // tCH = 1000ns for 2V
+            delay.delay_nano(10000); // tCH = 1000ns for 2V
             let _result: Result<(), <SCLK as OutputPin>::Error> = self.sclk.set_low();
-            delay.delay_nano(1000); // tCL = 1000ns for 2V
+            delay.delay_nano(10000); // tCL = 1000ns for 2V
             Ok(bit)
         }
 
@@ -199,28 +273,32 @@ fn main() -> ! {
     let mut led_y = gpiod.pd6.into_push_pull_output();
 
     // ds1302
-    let miso = gpioc.pc2.into_pull_up_input();
+    let miso = gpioc.pc2.into_floating_input();
     let scl = gpioc.pc4.into_push_pull_output();
     let ce = gpioc.pc1.into_push_pull_output_in_state(PinState::Low);
     let mosi = gpioa.pa2.into_push_pull_output();
 
     let mut ds1302 = ds1302::Ds1302::new(ce, scl, miso, mosi);
+    ds1302.set_year(24, &delay);
+    delay.delay_milli(500);
+    ds1302.set_month(1, &delay);
+    delay.delay_milli(500);
+    ds1302.set_date(30, &delay);
+    delay.delay_milli(500);
+    ds1302.set_hour(15, &delay);
+    delay.delay_milli(500);
     ds1302.write(0x80, 0b10000000, &delay);
     
     loop {
         delay.delay_milli(500);
-        match ds1302.read(0x83, &delay) {
-            Ok(data) => {
-                if data & 0b0000_0001 == 0b0000_0001 {
-                    led_y.set_high();
-                } else {
-                    led_y.set_low();
-                }
-            },
-            Err(_) => {
-                led_y.set_low();
-            }
-        }
-        // led_y.toggle();
+        let year = ds1302.get_year(&delay).unwrap();
+        println!("20{:02}", year);
+        // let month = ds1302.get_month(&delay).unwrap();
+        // let date= ds1302.get_date(&delay).unwrap();
+        // let week_date= ds1302.get_day(&delay).unwrap();
+        // let hour = ds1302.get_hour(&delay).unwrap();
+        // let minutes = ds1302.get_minutes(&delay).unwrap();
+        // let seconds = ds1302.get_seconds(&delay).unwrap();
+        // println!("20{:02}/{:02}/{:02}({}) {:02}:{:02}:{:02}", year, month, date, ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][week_date as usize], hour, minutes, seconds);
     }
 }

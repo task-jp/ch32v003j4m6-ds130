@@ -9,7 +9,7 @@ edition = "2021"
 ch32v-rt = "0.0.3"
 ch32v00x-hal = { version = "0.1.0", git = "https://github.com/ch32-rs/ch32v00x-hal.git", default-features = false, features = ["ch32v003j4m6"] }
 panic-halt = "0.2.0"
-qingke = "0.1.3"
+qingke = "0.1.7"
 embedded-hal = "0.2.7"
 fugit = "0.3.7"
 
