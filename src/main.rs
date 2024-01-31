@@ -82,13 +82,14 @@ pub mod ds1302 {
         }
         pub fn get_hour(&mut self, delay: &impl Delay) -> Result<u8, ReadWriteError> {
             let hour = self.read(0x85, delay)?;
-            let is_24h = hour & 0b1000_0000 == 0b1000_0000;
+            let is_24h = hour & 0b1000_0000 == 0b0000_0000;
             let is_pm = hour & 0b0010_0000 == 0b0010_0000;
-            let hour = decode_bcd(hour & 0b0001_1111);
-            if !is_24h || !is_pm {
-                Ok(hour)
+            if is_24h {
+                Ok(decode_bcd(hour & 0b0011_1111))
+            } else if is_pm {
+                Ok(decode_bcd(hour & 0b0001_1111) + 12)
             } else {
-                Ok(hour + 12)
+                Ok(decode_bcd(hour & 0b0001_1111))
             }
         }
 
@@ -278,22 +279,20 @@ fn main() -> ! {
     let clocks = rcc.config.freeze();
     let delay = Ch32Delay::new(clocks.sysclk());
 
+    let gpioa = pac.GPIOA.split(&mut rcc);
     let gpioc = pac.GPIOC.split(&mut rcc);
+
+    let mut green = gpioa.pa1.into_push_pull_output();
+    let mut red = gpioa.pa2.into_push_pull_output();
 
     let sclk = gpioc.pc4.into_push_pull_output();
     let io = gpioc.pc2.into_push_pull_output();
     let ce = gpioc.pc1.into_push_pull_output_in_state(PinState::Low);
-
     let mut ds1302 = ds1302::Ds1302::new(sclk, io, ce);
 
-    ds1302.set_running(false, &delay).unwrap();
-    ds1302.set_year(24, &delay).unwrap();
-    ds1302.set_day(4, &delay).unwrap();
-    ds1302.set_month(1, &delay).unwrap();
-    ds1302.set_date(31, &delay).unwrap();
-    ds1302.set_hour(15, &delay).unwrap();
-    ds1302.set_minutes(10, &delay).unwrap();
-    ds1302.set_seconds(10, &delay).unwrap();
+    ds1302.set_hour(23, &delay).unwrap();
+    ds1302.set_minutes(59, &delay).unwrap();
+    ds1302.set_seconds(30, &delay).unwrap();
     ds1302.set_running(true, &delay).unwrap();
     
     let mut last_seconds = 0xffu8;
@@ -306,13 +305,16 @@ fn main() -> ! {
         last_seconds = seconds;
         let minutes = ds1302.get_minutes(&delay).unwrap();
         let hour = ds1302.get_hour(&delay).unwrap();
-        let week_date= ds1302.get_day(&delay).unwrap();
-        let date= ds1302.get_date(&delay).unwrap();
-        let month = ds1302.get_month(&delay).unwrap();
-        let year = ds1302.get_year(&delay).unwrap();
 
-        println!("20{:02}/{:02}/{:02}({}) {:02}:{:02}:{:02}", year, month, date, week_date, hour, minutes, seconds);
-        // println!("{:02}", seconds);
+        if hour == 0 && minutes < 5 {
+            green.set_high();
+            red.set_low();
+        } else {
+            green.set_low();
+            red.set_high();
+        }
+
+        println!("{:02}:{:02}:{:02}", hour, minutes, seconds);
         delay.delay_milli(900);
     }
 }
