@@ -38,18 +38,18 @@ pub mod ds1302 {
         WriteError,
     }
 
-    pub struct Ds1302<CE, SCLK> {
-        ce: CE,
+    pub struct Ds1302<SCLK, CE> {
         sclk: SCLK,
         io: Option<ch32v00x_hal::gpio::Pin<'C', 2, Output<PushPull>>>,
+        ce: CE,
     }
 
-    impl<CE, SCLK> Ds1302<CE, SCLK> {
-        pub fn new(ce: CE, sclk: SCLK, io: ch32v00x_hal::gpio::Pin<'C', 2, Output<PushPull>>) -> Self {
+    impl<SCLK, CE> Ds1302<SCLK, CE> {
+        pub fn new(sclk: SCLK, io: ch32v00x_hal::gpio::Pin<'C', 2, Output<PushPull>>, ce: CE) -> Self {
             Self {
-                ce,
                 sclk,
                 io: Some(io),
+                ce,
             }
         }
     }
@@ -62,17 +62,16 @@ pub mod ds1302 {
         (bcd & 0b0000_1111) + ((bcd & 0b1111_0000) >> 4) * 10
     }
 
-    fn reverse_bits(mut n: u8) -> u8 {
-        n = (n >> 4) | (n << 4);
-        n = ((n & 0xCC) >> 2) | ((n & 0x33) << 2);
-        n = ((n & 0xAA) >> 1) | ((n & 0x55) << 1);
-        n
-    }
-
-    impl<CE, SCLK> Ds1302<CE, SCLK>
-    where CE: OutputPin,
-          SCLK: OutputPin,
+    impl<SCLK, CE> Ds1302<SCLK, CE>
+    where 
+        SCLK: OutputPin,
+        CE: OutputPin,
     {
+        pub fn is_running(&mut self, delay: &impl Delay) -> Result<bool, ReadWriteError> {
+            let seconds = self.read(0x81, delay)?;
+            Ok(seconds & 0b1000_0000 == 0b0000_0000)
+        }
+
         pub fn get_seconds(&mut self, delay: &impl Delay) -> Result<u8, ReadWriteError> {
             let seconds = self.read(0x81, delay)?;
             Ok(decode_bcd(seconds & 0b0111_1111))
@@ -113,8 +112,21 @@ pub mod ds1302 {
             Ok(decode_bcd(year))
         }
 
+        pub fn set_running(&mut self, is_running: bool, delay: &impl Delay) -> Result<(), ReadWriteError> {
+            let mut seconds = self.read(0x81, delay)?;
+            if is_running {
+                seconds &= 0b0111_1111;
+            } else {
+                seconds |= 0b1000_0000;
+            }
+            self.write(0x80, seconds, delay)
+        }
+
         pub fn set_seconds(&mut self, seconds: u8, delay: &impl Delay) -> Result<(), ReadWriteError> {
-            let seconds = encode_bcd(seconds);
+            let mut seconds = encode_bcd(seconds);
+            if !self.is_running(delay)? {
+                seconds |= 0b1000_0000;
+            }
             self.write(0x80, seconds, delay)
         }
 
@@ -269,12 +281,13 @@ fn main() -> ! {
     let gpioc = pac.GPIOC.split(&mut rcc);
 
     // ds1302
+    let sclk = gpioc.pc4.into_push_pull_output();
     let io = gpioc.pc2.into_push_pull_output();
-    let scl = gpioc.pc4.into_push_pull_output();
     let ce = gpioc.pc1.into_push_pull_output_in_state(PinState::Low);
 
-    let mut ds1302 = ds1302::Ds1302::new(ce, scl, io);
+    let mut ds1302 = ds1302::Ds1302::new(sclk, io, ce);
 
+    ds1302.set_running(false, &delay).unwrap();
     ds1302.set_year(24, &delay).unwrap();
     ds1302.set_day(4, &delay).unwrap();
     ds1302.set_month(1, &delay).unwrap();
@@ -282,7 +295,7 @@ fn main() -> ! {
     ds1302.set_hour(15, &delay).unwrap();
     ds1302.set_minutes(10, &delay).unwrap();
     ds1302.set_seconds(10, &delay).unwrap();
-    // ds1302.write(0x80, 0b10000000, &delay).unwrap();
+    ds1302.set_running(true, &delay).unwrap();
     
     let mut last_seconds = 0xffu8;
     loop {
