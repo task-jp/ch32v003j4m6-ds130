@@ -38,14 +38,14 @@ pub mod ds1302 {
         WriteError,
     }
 
-    pub struct Ds1302<SCLK, CE> {
+    pub struct Ds1302<SCLK, const P: char, const N: u8, CE> {
         sclk: SCLK,
-        io: Option<ch32v00x_hal::gpio::Pin<'C', 2, Output<PushPull>>>,
+        io: Option<ch32v00x_hal::gpio::Pin<P, N, Output<PushPull>>>,
         ce: CE,
     }
 
-    impl<SCLK, CE> Ds1302<SCLK, CE> {
-        pub fn new(sclk: SCLK, io: ch32v00x_hal::gpio::Pin<'C', 2, Output<PushPull>>, ce: CE) -> Self {
+    impl<SCLK, const P: char, const N: u8, CE> Ds1302<SCLK, P, N, CE> {
+        pub fn new(sclk: SCLK, io: ch32v00x_hal::gpio::Pin<P, N, Output<PushPull>>, ce: CE) -> Self {
             Self {
                 sclk,
                 io: Some(io),
@@ -62,7 +62,7 @@ pub mod ds1302 {
         (bcd & 0b0000_1111) + ((bcd & 0b1111_0000) >> 4) * 10
     }
 
-    impl<SCLK, CE> Ds1302<SCLK, CE>
+    impl<SCLK, const P: char, const N: u8, CE> Ds1302<SCLK, P, N, CE>
     where 
         SCLK: OutputPin,
         CE: OutputPin,
@@ -280,7 +280,6 @@ fn main() -> ! {
 
     let gpioc = pac.GPIOC.split(&mut rcc);
 
-    // ds1302
     let sclk = gpioc.pc4.into_push_pull_output();
     let io = gpioc.pc2.into_push_pull_output();
     let ce = gpioc.pc1.into_push_pull_output_in_state(PinState::Low);
