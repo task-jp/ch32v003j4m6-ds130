@@ -407,7 +407,7 @@
     ]
   },
   "meta": {
-    "filename": "ch32v004jm6-ds1302.kicad_pro",
+    "filename": "ch32v003j4m6-ds1302.kicad_pro",
     "version": 1
   },
   "net_settings": {
@@ -460,6 +460,10 @@
       {
         "netclass": "Power",
         "pattern": "GND"
+      },
+      {
+        "netclass": "Power",
+        "pattern": "+BATT"
       }
     ]
   },
