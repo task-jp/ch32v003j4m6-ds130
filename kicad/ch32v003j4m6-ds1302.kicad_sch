@@ -4,6 +4,13 @@
 
   (paper "A4")
 
+  (title_block
+    (title "Gathering CLOCK")
+    (date "2024-02-05")
+    (rev "1.0")
+    (company "Tasuku Suzuki")
+  )
+
   (lib_symbols
     (symbol "Connector:Conn_01x04_Pin" (pin_names (offset 1.016) hide) (in_bom yes) (on_board yes)
       (property "Reference" "J" (at 0 5.08 0)
