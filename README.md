@@ -3,7 +3,7 @@
 Simple two LEDs clock that tells first 5mins in hours.
 
 ## Features
-* pushing a button in 10 secs resets the clock
+* pushing a button in 30 secs resets the clock
 
 |Min|Green|Red|
 |---|-----|---|
