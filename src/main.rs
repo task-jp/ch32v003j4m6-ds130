@@ -295,6 +295,9 @@ fn main() -> ! {
     let mut pressed = 0;
     let mut last_seconds = 0xffu8;
 
+    green.set_high();
+    red.set_high();
+    
     loop {
         delay.delay_milli(10);
         let seconds = ds1302.get_seconds(&delay).unwrap();
