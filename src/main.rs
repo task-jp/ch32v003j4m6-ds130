@@ -303,7 +303,7 @@ fn main() -> ! {
         }
         last_seconds = seconds;
 
-        if pressed == 10 {
+        if pressed == 30 {
             ds1302.set_minutes(0, &delay).unwrap();
             ds1302.set_seconds(0, &delay).unwrap();
             last_seconds = 0xffu8;
