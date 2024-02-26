@@ -290,12 +290,11 @@ fn main() -> ! {
     let ce = gpioc.pc1.into_push_pull_output_in_state(PinState::Low);
     let mut ds1302 = ds1302::Ds1302::new(sclk, io, ce);
 
-    ds1302.set_hour(23, &delay).unwrap();
-    ds1302.set_minutes(59, &delay).unwrap();
-    ds1302.set_seconds(30, &delay).unwrap();
     ds1302.set_running(true, &delay).unwrap();
     
+    let mut pressed = 0;
     let mut last_seconds = 0xffu8;
+
     loop {
         delay.delay_milli(10);
         let seconds = ds1302.get_seconds(&delay).unwrap();
@@ -303,18 +302,43 @@ fn main() -> ! {
             continue;
         }
         last_seconds = seconds;
-        let minutes = ds1302.get_minutes(&delay).unwrap();
-        let hour = ds1302.get_hour(&delay).unwrap();
 
-        if hour == 0 && minutes < 5 {
+        if pressed == 10 {
+            ds1302.set_minutes(0, &delay).unwrap();
+            ds1302.set_seconds(0, &delay).unwrap();
+            last_seconds = 0xffu8;
             green.set_high();
-            red.set_low();
-        } else {
-            green.set_low();
             red.set_high();
+            continue;
+        } else {
+            pressed += 1;
         }
 
-        println!("{:02}:{:02}:{:02}", hour, minutes, seconds);
+        let minutes = ds1302.get_minutes(&delay).unwrap();
+
+        match minutes {
+            55..=60 => {
+                // 待ち合わせ時間直前は赤を点滅
+                green.set_low();
+                red.set_state((seconds % 2 == 0).into());
+            },
+            0..=4 => {
+                // 待ち合わせ時間内は緑を点灯
+                green.set_high();
+                red.set_low();
+            },
+            5..=10 => {
+                // 待ち合わせ時間が過ぎたら緑を点灯
+                green.set_state((seconds % 2 == 0).into());
+                red.set_low();
+            },
+            _ => {
+                // それ以外の場合は赤を点灯
+                green.set_low();
+                red.set_high();
+            }
+        }
+        // println!("{:02}:{:02}", minutes, seconds);
         delay.delay_milli(900);
     }
 }
